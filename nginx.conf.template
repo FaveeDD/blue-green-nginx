@@ -1,0 +1,39 @@
+events {
+    worker_connections 1024;
+}
+
+http {
+    # Dynamic upstream based on ACTIVE_POOL environment variable
+    # When ACTIVE_POOL=blue → Blue is primary, Green is backup
+    # When ACTIVE_POOL=green → Green is primary, Blue is backup
+    
+    upstream app_backend {
+        # Primary server (the active pool)
+        server app_${ACTIVE_POOL}:3000 max_fails=1 fail_timeout=3s;
+        
+        # Backup servers (both listed, nginx uses them when primary fails)
+        server app_blue:3000 backup;
+        server app_green:3000 backup;
+    }
+
+    server {
+        listen 80;
+
+        # Fast timeouts for quick failover detection
+        proxy_connect_timeout 1s;
+        proxy_read_timeout 2s;
+
+        location / {
+            proxy_pass http://app_backend;
+            
+            # Retry on failures
+            proxy_next_upstream error invalid_header timeout http_500 http_502 http_503 http_504;
+            proxy_next_upstream_tries 3;
+            
+            # headers
+            proxy_set_header Host $host;
+            proxy_http_version 1.1;
+
+        }
+    }
+}
